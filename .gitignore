@@ -5,3 +5,6 @@
 *.o
 *.so
 *.dll
+
+# Local-only smoke-test scripts
+data-raw/
