@@ -65,6 +65,7 @@ Models cache to `tools::R_user_dir("pannamodels", "cache")/models/{tag}/`. Use `
 - **First load requires network** — models are downloaded from GitHub Releases via piggyback, with a direct-URL fallback
 - **Corrupted models auto-clear** — if an RDS fails to load (decompression error), the cache entry is deleted and you're prompted to retry
 - **panna depends on this** — `panna` xMetrics pipeline calls `pannamodels::load_panna_model()` for xG/xPass/EPV models
+- **Re-publishing a model does NOT bust local caches** — `gh release upload <tag> model.rds --clobber` replaces the GitHub Release asset, but any machine that already cached that model under `R_user_dir("pannamodels","cache")/models/{tag}/` keeps loading the STALE copy. `load_panna_model()` downloads only when the cache file is *absent* — it never checks remote freshness. After a re-publish, run `clear_model_cache("{tag}")` (or `load_panna_model(..., force_download = TRUE)`) before any local pipeline run, or pass an explicit model override. This bit the 2026-06-19 EPV/WP model swap — the game-logs regen used `epv_model_override` / `wp_model_override` precisely to sidestep it.
 
 ## Related Projects
 
