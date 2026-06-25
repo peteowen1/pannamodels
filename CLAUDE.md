@@ -23,7 +23,7 @@ Smoke test: `Rscript data-raw/test_load.R` — lists available models, checks th
 
 | Release Tag | Models | Format |
 |-------------|--------|--------|
-| `epv` | xg_model, xpass_model, epv_model, wp_model | .rds |
+| `epv` | xg_model, xgot_model, xpass_model, epv_model, wp_model, duel_model | .rds |
 | `prediction` | goals_home_model, goals_away_model, outcome_model | .rds |
 
 ## Usage

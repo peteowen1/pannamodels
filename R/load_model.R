@@ -8,7 +8,8 @@
   "xgot_model" = "Expected Goals On Target (xGOT / post-shot xG) — XGBoost classifier using goal-mouth placement",
   "xpass_model" = "Expected Pass (xPass) model — pass completion probability",
   "epv_model" = "Expected Possession Value (EPV) model — action-level player valuation",
-  "wp_model" = "Win Probability (WP) model — XGBoost binary classifier (possession-POV outcome)"
+  "wp_model" = "Win Probability (WP) model — XGBoost binary classifier (possession-POV outcome)",
+  "duel_model" = "xDuel model — 5 context-only XGBoost classifiers (aerial win/possession, take-on, tackle, containment) producing above-expected duel WOE features for PSR/PSV"
 )
 
 #' @noRd
