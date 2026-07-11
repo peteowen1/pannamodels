@@ -39,6 +39,67 @@ get_models_dir <- function() {
   return(models_dir)
 }
 
+# Manifest-verified cache freshness (ECOSYSTEM-FIX-PLAN.md M5)
+# -----------------------------------------------------------------
+# pannamodels has no manifest layer of its own (unlike torpmodels'
+# models_manifest.json) -- it uses versebus's generic bus_manifest.json
+# directly. `.get_bus_manifest()` wraps `vb_read_manifest()` (vendored in
+# versebus.R) with a session-local, rate-limited cache (one fetch per
+# (repo, tag) per 15-minute window) so a cache-hit check doesn't hit the
+# network on every single load. `vb_read_manifest()` already implements the
+# "exactly one legacy-mode warning per session per tag" rule internally
+# (via its own `.vb_state` env) for the confirmed-absent case; what it does
+# NOT do is degrade gracefully on a *transient* fetch failure -- it
+# propagates those (by design, for producer callers that must not silently
+# treat a network blip as "no manifest"). A read-only cache-freshness check
+# must not hard-fail a load that could otherwise succeed from a good local
+# cache, so that propagated error is caught here and degraded to "skip
+# verification this session" instead.
+
+#' @noRd
+.pm_manifest_state <- new.env(parent = emptyenv())
+
+#' @noRd
+.pm_manifest_ttl_secs <- 900L
+
+#' Session-cached, rate-limited fetch of a tag's bus_manifest.json
+#' @keywords internal
+.get_bus_manifest <- function(repo, tag, verbose = TRUE) {
+  key <- paste0(repo, "@", tag)
+  cached <- .pm_manifest_state[[key]]
+  if (!is.null(cached) &&
+      as.numeric(Sys.time() - cached$fetched_at, units = "secs") < .pm_manifest_ttl_secs) {
+    return(cached$manifest)
+  }
+
+  manifest <- tryCatch(
+    vb_read_manifest(repo, tag, required = FALSE),
+    error = function(e) {
+      if (verbose) {
+        cli::cli_warn("Could not fetch bus_manifest.json for {.val {tag}} ({conditionMessage(e)}) -- skipping cache verification this session")
+      }
+      NULL
+    }
+  )
+  .pm_manifest_state[[key]] <- list(manifest = manifest, fetched_at = Sys.time())
+  manifest
+}
+
+#' Is a locally cached model file still valid against bus_manifest.json?
+#'
+#' TRUE (serve from cache) when there's no manifest to check against
+#' (legacy mode) or no entry for this specific file (an untracked asset --
+#' can't validate it, so don't punish it); otherwise delegates to
+#' versebus's sidecar-based `vb_cache_validate()`.
+#' @keywords internal
+.pm_cache_is_fresh <- function(repo, tag, file_name, local_path, verbose = TRUE) {
+  manifest <- .get_bus_manifest(repo, tag, verbose)
+  if (is.null(manifest) || is.null(manifest$assets)) return(TRUE)
+  entry <- .vb_manifest_entry_for(manifest, file_name)
+  if (is.null(entry) || is.null(entry$sha256)) return(TRUE)
+  vb_cache_validate(local_path, entry)
+}
+
 
 #' Load a Panna Model
 #'
@@ -69,10 +130,14 @@ load_panna_model <- function(model_name, force_download = FALSE, verbose = TRUE)
   }
 
   local_path <- file.path(get_models_dir(), info$tag, info$file)
+  repo <- get_pannamodels_repo()
 
   if (file.exists(local_path) && !force_download) {
-    if (verbose) cli::cli_inform("Loading {model_name} from local cache")
-    return(safe_read_rds(local_path, model_name))
+    if (.pm_cache_is_fresh(repo, info$tag, info$file, local_path, verbose)) {
+      if (verbose) cli::cli_inform("Loading {model_name} from local cache")
+      return(safe_read_rds(local_path, model_name))
+    }
+    if (verbose) cli::cli_inform("Cached {model_name} does not match bus_manifest.json -- re-downloading")
   }
 
   if (verbose) cli::cli_inform("Downloading {model_name} from GitHub releases...")
@@ -180,6 +245,7 @@ safe_read_rds <- function(path, label = basename(path)) {
       )
       if (is_corruption) {
         unlink(path)
+        unlink(paste0(path, ".sha256"))
         cli::cli_abort("Model {label} corrupted: {msg}. Cache cleared, try again.")
       }
       cli::cli_abort("Failed to load {label}: {msg}")
@@ -187,37 +253,111 @@ safe_read_rds <- function(path, label = basename(path)) {
   )
 }
 
+#' Download model from GitHub release
+#'
+#' Verifies sha256 against `bus_manifest.json` when the tag's manifest
+#' tracks this file -- replacing the old `file.size > 100` heuristic, which
+#' is now only a last-resort fallback for tags with no manifest entry to
+#' compare against (legacy mode). Each download attempt lands in a tempdir
+#' created beside the destination and is moved into place atomically via
+#' `vb_atomic_write()`, with a `<local_path>.sha256` sidecar written
+#' alongside on success. A failed integrity check deletes the temp and
+#' retries the SAME method once before falling through to the next method
+#' (piggyback, then a direct release URL); a pre-existing `local_path` is
+#' never touched by a failed download.
 #' @keywords internal
 #' @importFrom cli cli_inform cli_warn cli_abort
-#' @importFrom utils download.file
 download_model <- function(file_name, release_tag, local_path, verbose = TRUE) {
   repo <- get_pannamodels_repo()
   parent_dir <- dirname(local_path)
   if (!dir.exists(parent_dir)) dir.create(parent_dir, recursive = TRUE)
 
-  tryCatch({
-    temp_dir <- tempdir()
-    piggyback::pb_download(file = file_name, repo = repo, tag = release_tag, dest = temp_dir)
-    temp_path <- file.path(temp_dir, file_name)
-    if (file.exists(temp_path) && file.size(temp_path) > 100) {
-      file.copy(temp_path, local_path, overwrite = TRUE)
-      unlink(temp_path)
-      if (verbose) cli::cli_inform("Downloaded {file_name}")
-      return(invisible(TRUE))
+  manifest <- .get_bus_manifest(repo, release_tag, verbose)
+  entry <- .vb_manifest_entry_for(manifest, file_name)
+
+  # One fetch+verify+place attempt. `fetch_fn(tmpdir)` must leave `file_name`
+  # inside `tmpdir`; raises a vb_error_integrity on a corrupt/undersized/
+  # mismatched download, otherwise propagates whatever error the download
+  # call itself raised (network, 404, ...).
+  attempt <- function(fetch_fn) {
+    tmpdir <- tempfile(".pm_dl_", tmpdir = parent_dir)
+    dir.create(tmpdir)
+    on.exit(unlink(tmpdir, recursive = TRUE), add = TRUE)
+
+    fetch_fn(tmpdir)
+
+    tmp <- file.path(tmpdir, file_name)
+    if (!file.exists(tmp) || file.size(tmp) == 0L) {
+      .vb_abort("{file_name}: download produced no/empty file", "vb_error_integrity")
     }
-    stop("File not found or too small")
-  }, error = function(e) {
-    if (verbose) cli::cli_warn("piggyback failed: {e$message}")
-  })
+    if (!is.null(entry) && !is.null(entry$sha256)) {
+      got <- vb_sha256(tmp)
+      if (!identical(got, entry$sha256)) {
+        .vb_abort(
+          "{file_name}: sha256 mismatch vs bus_manifest.json (got {substr(got, 1, 12)}..., want {substr(entry$sha256, 1, 12)}...)",
+          "vb_error_integrity"
+        )
+      }
+    } else if (file.size(tmp) <= 100L) {
+      # No manifest entry to verify against -- legacy size heuristic.
+      .vb_abort("{file_name}: downloaded file is too small (likely an error page)", "vb_error_integrity")
+    }
 
-  tryCatch({
+    vb_atomic_write(function(p) file.copy(tmp, p, overwrite = TRUE), local_path)
+    writeLines(vb_sha256(local_path), paste0(local_path, ".sha256"))
+    invisible(TRUE)
+  }
+
+  with_retry <- function(fetch_fn, label) {
+    result <- tryCatch(attempt(fetch_fn), error = function(e) e)
+    if (inherits(result, "vb_error_integrity")) {
+      if (verbose) {
+        cli::cli_warn("{label} download of {file_name} failed integrity check ({conditionMessage(result)}); retrying once")
+      }
+      result <- tryCatch(attempt(fetch_fn), error = function(e) e)
+    }
+    result
+  }
+
+  # Try piggyback first (preferred method)
+  pb_result <- with_retry(function(tmpdir) {
+    piggyback::pb_download(file = file_name, repo = repo, tag = release_tag,
+                           dest = tmpdir, overwrite = TRUE)
+  }, "piggyback")
+
+  if (!inherits(pb_result, "error")) {
+    if (verbose) cli::cli_inform("Downloaded {file_name}")
+    return(invisible(TRUE))
+  }
+  if (verbose) cli::cli_warn("piggyback failed: {conditionMessage(pb_result)}")
+
+  # Fallback to direct URL download
+  url_result <- with_retry(function(tmpdir) {
     url <- paste0("https://github.com/", repo, "/releases/download/", release_tag, "/", file_name)
-    if (verbose) cli::cli_inform("Trying direct download...")
-    download.file(url, local_path, mode = "wb", quiet = !verbose)
-    if (file.exists(local_path) && file.size(local_path) > 100) return(invisible(TRUE))
-  }, error = function(e) {
-    cli::cli_warn("Direct download failed: {e$message}")
-  })
+    if (verbose) cli::cli_inform("Trying direct download from {url}")
+    # Qualified on purpose (not an unqualified `@importFrom` binding): a bare
+    # `download.file()` resolves to the copy captured in this package's
+    # namespace at load time, which testthat's
+    # `local_mocked_bindings(.package = "utils")` cannot reach -- only a
+    # live `utils::` lookup sees the mocked binding.
+    utils::download.file(url, file.path(tmpdir, file_name), mode = "wb", quiet = !verbose)
+  }, "direct URL")
 
-  cli::cli_abort("Failed to download {file_name} from {release_tag}")
+  if (!inherits(url_result, "error")) {
+    if (verbose) cli::cli_inform("Downloaded {file_name}")
+    return(invisible(TRUE))
+  }
+
+  # Both methods failed -- report both; type as vb_error_integrity if either
+  # failure was a corruption signal (never silently downgrade that to a
+  # generic error).
+  details <- paste0(
+    "piggyback: ", conditionMessage(pb_result), "; ",
+    "direct URL: ", conditionMessage(url_result)
+  )
+  is_integrity <- inherits(pb_result, "vb_error_integrity") || inherits(url_result, "vb_error_integrity")
+  cli::cli_abort(
+    "Failed to download {file_name} from {release_tag}. {details}",
+    class = if (is_integrity) c("vb_error_integrity", "vb_error") else "vb_error"
+  )
 }

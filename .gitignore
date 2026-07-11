@@ -6,5 +6,8 @@
 *.so
 *.dll
 
-# Local-only smoke-test scripts
-data-raw/
+# Local-only smoke-test scripts (publish_models.R is the tracked exception --
+# a parent-dir ignore pattern can't be un-ignored by a nested negation, so
+# the whole directory's contents are ignored individually instead)
+data-raw/*
+!data-raw/publish_models.R
