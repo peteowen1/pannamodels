@@ -1,0 +1,4 @@
+# See panna/.gitattributes: versebus.R is synced byte-for-byte across the
+# verses and checked with a plain `diff`, so its line endings must not vary
+# by checkout.
+R/versebus.R text eol=lf
