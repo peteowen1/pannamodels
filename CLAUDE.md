@@ -6,7 +6,7 @@ Pre-trained ML models for football analytics, served via GitHub releases with lo
 
 **pannamodels** provides pre-trained models for the panna R package. Minimal package — no data processing, just model loading and caching.
 
-**R files**: `load_model.R` (model download/cache logic), `pannamodels-package.R` (package docs). No GitHub Actions — CI runs in the parent `panna` package which depends on this.
+**R files**: `load_model.R` (model download/cache logic), `pannamodels-package.R` (package docs), `versebus.R` (vendored cross-verse publish/pull helper, kept in sync by diff with the copies in `torpverse/torp/R/versebus.R` and `torpverse/torpmodels/R/versebus.R` — not dead code). No GitHub Actions — CI runs in the parent `panna` package which depends on this.
 
 ## Development Commands
 
