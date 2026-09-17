@@ -70,3 +70,17 @@ Models cache to `tools::R_user_dir("pannamodels", "cache")/models/{tag}/`. Use `
 ## Related Projects
 
 Part of the pannaverse ecosystem. See `C:\dev\pannaverse\CLAUDE.md` for monorepo overview. Mirrors torpmodels and bouncermodels pattern. For full ecosystem: `C:\dev\ECOSYSTEM.md`
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in this repo's GitHub Issues (`peteowen1/pannamodels`). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Canonical defaults (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context — one `CONTEXT.md` + `docs/adr/` at this repo's root (neither exists yet; created lazily by `/domain-modeling`). See `docs/agents/domain.md`.
