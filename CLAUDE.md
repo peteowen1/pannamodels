@@ -26,6 +26,13 @@ Smoke test: `Rscript data-raw/test_load.R` — lists available models, checks th
 | `epv` | xg_model, xgot_model, xpass_model, epv_model, wp_model, duel_model | .rds |
 | `prediction` | goals_home_model, goals_away_model, outcome_model | .rds |
 
+Verified 2026-09-27 against `gh api repos/peteowen1/pannamodels/releases`: the `prediction` release
+currently has **zero uploaded assets** — `load_panna_model()` for any of its three registered names
+would fail today unless served from local cache. The pipeline's actual outcome/goals models are
+trained fresh per-run by panna's `06_fit_outcome_model.R` (cached locally, not fetched from here).
+The `epv` release also carries two assets not in the registry table above: `epv_model_goal.rds`,
+`epv_model_xg.rds`.
+
 ## Usage
 
 ```r
