@@ -6,6 +6,8 @@
 .EPV_MODELS <- c(
   "xg_model" = "Expected Goals (xG) model — XGBoost binary classifier for shot conversion",
   "xgot_model" = "Expected Goals On Target (xGOT / post-shot xG) — XGBoost classifier using goal-mouth placement",
+  "xg_model_v5" = "xG v5 — adds pre-shot context (assist, possession, rebound, score, weak foot); callers pass the match events and shot history",
+  "xgot_model_v3" = "xGOT v3 — xGOT with the same pre-shot context as xG v5",
   "xpass_model" = "Expected Pass (xPass) model — pass completion probability",
   "epv_model" = "Expected Possession Value (EPV) model — action-level player valuation",
   "wp_model" = "Win Probability (WP) model — XGBoost binary classifier (possession-POV outcome)",
