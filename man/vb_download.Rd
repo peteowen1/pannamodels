@@ -18,7 +18,10 @@ vb_download(
 \item{manifest}{pass a manifest to verify sha256; NULL fetches it
 (legacy mode when the tag has none)}
 
-\item{require_manifest}{TRUE in CI/strict mode (VERSEBUS_STRICT=1)}
+\item{require_manifest}{TRUE in CI/strict mode (VERSEBUS_STRICT=1). torp has
+a \code{.strict_mode()} helper owning this parse rule, but this file is vendored
+into torpmodels and guarded function-by-function by \code{test-versebus-sync.R},
+so the check stays inline here until the sibling copy gains the helper too.}
 
 \item{max_age}{optional difftime; manifest older than this raises
 \code{vb_error_stale}}
@@ -28,7 +31,7 @@ Downloads to a tempfile in \code{dest}'s directory, verifies (parquet magic
 bytes; sha256 vs manifest when available, size vs asset list otherwise),
 then atomically renames into place and writes a \verb{<dest>.sha256} sidecar.
 ON ANY FAILURE the temp is deleted and a pre-existing \code{dest} is left
-untouched — but it is NEVER silently served as a fallback: the typed error
+untouched -- but it is NEVER silently served as a fallback: the typed error
 propagates and the caller must opt in to "serve stale + warn" explicitly.
 }
 \keyword{internal}

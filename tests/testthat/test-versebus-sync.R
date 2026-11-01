@@ -27,7 +27,9 @@ SHARED_VERSEBUS_FUNCTIONS <- c(
   "vb_list_assets", "vb_confirm_absent", "vb_read_manifest",
   "vb_read_prev_manifest", ".vb_manifest_entry_for", ".vb_check_parquet_magic",
   ".vb_retry", "vb_download", "vb_cache_validate", "vb_generation",
-  "vb_publish", ".vb_merge_entries"
+  "vb_publish", ".vb_merge_entries",
+  # 2026-11-01 (versebus 1.2.0): synced up from 1.1.0; vb_publish() writes every asset through these.
+  ".vb_with_fresh_listing", ".vb_safe_upload", ".vb_token", ".vb_refused_status"
 )
 
 # Parse a versebus.R file into name -> deparsed function-body text, for every
