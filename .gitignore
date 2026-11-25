@@ -11,3 +11,6 @@
 # the whole directory's contents are ignored individually instead)
 data-raw/*
 !data-raw/publish_models.R
+
+# Local model backups (never committed; models go to releases)
+_archive/
